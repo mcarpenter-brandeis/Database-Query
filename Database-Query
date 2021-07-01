@@ -1,0 +1,115 @@
+#!/usr/bin/env python
+
+#Author: Meredith Carpenter
+#Goal: Query online database for genetic analysis
+#Inputs: Target gene - MC1R
+#Outputs: mc1r.fasta, mc1r_homology_list.txt
+#Additional deliverable: assign4.py (python code) and readme.txt
+
+##STEP 1: Use the mygene database restful api endpoint to get the ensamble id for the MC1R gene (human species)
+
+##STEP 2: Use the ensembl database endpoints to grab the nucleotide seqeunce data for MC1R
+##Generate mc1r.fasta file containing the nucleotide seqeunce for MC1R.
+##Find the longest open reading frame (ORF)
+##Convert the longest open reading frame to amino acid sequence with biopython (from Bio.Seq import Seq)
+##Write amino acid sequence to mc1r.fasta
+
+##STEP 3: Determine what other species have genes that are homolgous to MC1R.
+##Write the full unique list of species to mc1r_homology_list.txt
+
+##To execute:
+##python3 assign4.py
+
+import requests, sys, json, re
+from pprint import pprint
+from Bio import SeqIO
+from Bio.Seq import Seq
+
+#Fetching the ensembl id from server
+def fetch_endpoint(server, request, content_type):
+
+    r = requests.get(server+request, headers={ "Content-Type" : content_type})
+
+    if not r.ok:
+        r.raise_for_status()
+        sys.exit()
+    
+    if content_type == 'application/json':
+        return r.json()
+    else:
+        return r.text
+
+gene_name = "MC1R"
+
+server = "http://rest.ensembl.org/"
+ext = "/xrefs/symbol/homo_sapiens/" + gene_name + "?"
+con = "application/json"
+
+#submit the query to acquire ensembl id and save as variable
+get_lookup = fetch_endpoint(server, ext, con)
+ensembl = get_lookup[0]['id']
+print("MC1R Ensembl ID:")
+print(ensembl)
+
+#define the REST query to get the sequence from the gene (and ensembl ID)
+ext_get_seq = "/sequence/id/" + ensembl + "?"
+get_seq = fetch_endpoint(server, ext_get_seq, "text/x-fasta")
+
+#generate fasta file mc1r.fasta and save sequence to file
+mc1r = open("mc1r.fasta", 'w')
+mc1r.write(get_seq)
+mc1r.close()
+
+#find the longest open reading frame (OFR)
+records = SeqIO.parse('mc1r.fasta', 'fasta')
+
+for record in records:
+    for strand, seq in (1, record.seq), (-1, record.seq.reverse_complement()):
+        for frame in range(3):
+            index = frame
+            while index < len(record) - 6:
+                match = re.match('(ATG(?:\S{3})*?T(?:AG|AA|GA))', str(seq[index:]))
+                if match:
+                    orf = match.group()
+                    index += len(orf)
+                    if len(orf) > 1300:
+                        pos = str(record.seq).find(orf) + 1 
+                        print("Longest ORF data:")
+                        print("{}...{} - length {}, strand {}, frame {}, pos {}, name {}".format\
+                           (orf[:6], orf[-3:], len(orf), strand, frame, pos, record.id))
+                else: index += 3
+
+#Translate longest ORF sequence to amino acids
+coding_dna = Seq(orf)
+aminoacids = coding_dna.translate(to_stop=True)
+print("Amino acid sequence for longest ORF:")
+print(aminoacids)
+
+#Write the amino acid sequence to mc1r.fasta
+mc1r = open("mc1r.fasta", 'a')
+mc1r.write("Amino Acid Sequence:\n{}". format(aminoacids))
+mc1r.close()
+
+#Search ensembl for all species that have genes homologous to MC1R
+ext = "/homology/symbol/human/" + gene_name + "?"
+con = "application/json"
+get_homologies = fetch_endpoint(server, ext, con)
+
+#Extract species names from retreived data. Initialize set to generate unique list
+homologies = set()
+
+for i in get_homologies['data'][0]['homologies']:
+    if i['target']['species'] != 'homo_sapiens':
+        homologies.add(i['target']['species'])
+
+#Sort list alphabetically and print each species to a new line
+sorted_homologies = sorted(homologies)
+str_homologies = "\n".join(sorted_homologies)
+
+#generate text file mc1r_homology_list.txt and save species list to file
+homol = open("mc1r_homology_list.txt", 'w')
+homol.write("Full unique list of species that have genes homologous to MC1R:\n\n")
+homol.write(str_homologies)
+homol.close()
+
+print("Species list successfully generated, please see file mc1r_homology_list.txt")
