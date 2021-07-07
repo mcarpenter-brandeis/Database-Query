@@ -1,4 +1,4 @@
-# Sample-Query-Database
+# Database Query
 
 #Author: Meredith Carpenter
 
